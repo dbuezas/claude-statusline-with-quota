@@ -1,4 +1,6 @@
-# Claude Code Status Line
+# Claude Code Status Line with quota usage
+
+Bun ends up loading faster than a pure bash script believe it or not.
 
 <img width="420" alt="screenshot" src="https://github.com/user-attachments/assets/38b8647e-02c7-4a9c-abde-cec842c816d6" />
 
