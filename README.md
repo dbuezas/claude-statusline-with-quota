@@ -13,7 +13,8 @@
    ```
 3. Add to `~/.claude/settings.json`:
    ```json
-   {
-     "statusLineCommand": "bun run ~/.claude/statusline-command"
-   }
+   "statusLine": {
+     "type": "command",
+     "command": "bun ~/.claude/statusline-command"
+   },
    ```
