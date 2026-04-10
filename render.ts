@@ -1,4 +1,7 @@
-import type { UsageCache } from "./fetch-usage-api";
+export interface RateLimitWindow {
+  used_percentage?: number;
+  resets_at?: number; // unix epoch seconds
+}
 
 export interface StatusLineInput {
   version: string;
@@ -11,6 +14,10 @@ export interface StatusLineInput {
     total_lines_removed?: number;
   };
   context_window?: { used_percentage?: number };
+  rate_limits?: {
+    five_hour?: RateLimitWindow;
+    seven_day?: RateLimitWindow;
+  };
 }
 
 // Colors
@@ -96,17 +103,17 @@ function makeBar(
   return bar + colors.reset;
 }
 
-function calcPacing(resetsAt: string, windowSecs: number): number | undefined {
-  const resetEpoch = new Date(resetsAt).getTime();
-  if (isNaN(resetEpoch)) return undefined;
+function calcPacing(resetsAt: number, windowSecs: number): number | undefined {
+  const resetEpoch = resetsAt * 1000;
+  if (!Number.isFinite(resetEpoch)) return undefined;
   const now = Date.now();
   const windowStart = resetEpoch - windowSecs * 1000;
   const elapsed = Math.max(0, Math.min(now - windowStart, windowSecs * 1000));
   return Math.round((elapsed / (windowSecs * 1000)) * 100);
 }
 
-function fmtReset(resetsAt: string): string {
-  const resetDate = new Date(resetsAt);
+function fmtReset(resetsAt: number): string {
+  const resetDate = new Date(resetsAt * 1000);
   if (isNaN(resetDate.getTime())) return "?";
   const diffMs = resetDate.getTime() - Date.now();
 
@@ -130,28 +137,18 @@ const SEVEN_DAYS = 7 * 86400;
 type QuotaInfo = { label: string; pct: number; pace?: number } | undefined;
 
 function fmtQuotaLabel(
-  data: { utilization?: number; resets_at?: string } | undefined,
+  data: RateLimitWindow | undefined,
   windowSecs: number,
 ): QuotaInfo {
-  if (data?.utilization === undefined || !data.resets_at) return undefined;
-  const pct = Math.round(data.utilization);
+  if (data?.used_percentage === undefined || data.resets_at === undefined)
+    return undefined;
+  const pct = Math.round(data.used_percentage);
   const pace = calcPacing(data.resets_at, windowSecs);
   const reset = fmtReset(data.resets_at);
   return { label: ` ${pct}% @${reset}`, pct, pace };
 }
 
-function fmtTime(date: Date): string {
-  const h = date.getHours() % 12 || 12;
-  const m = date.getMinutes().toString().padStart(2, "0");
-  return `${h}:${m} ${date.getHours() >= 12 ? "PM" : "AM"}`;
-}
-
-export function render(
-  input: StatusLineInput,
-  usage: UsageCache,
-  fetchedAt: Date,
-  branch: string,
-): void {
+export function render(input: StatusLineInput, branch: string): void {
   const model = input.model?.display_name ?? "";
   const dir = input.workspace?.current_dir ?? "";
   const cost = input.cost?.total_cost_usd ?? 0;
@@ -161,8 +158,8 @@ export function render(
   const linesAdded = input.cost?.total_lines_added ?? 0;
   const linesRemoved = input.cost?.total_lines_removed ?? 0;
 
-  const q5h = fmtQuotaLabel(usage.five_hour, FIVE_HOURS);
-  const q7d = fmtQuotaLabel(usage.seven_day, SEVEN_DAYS);
+  const q5h = fmtQuotaLabel(input.rate_limits?.five_hour, FIVE_HOURS);
+  const q7d = fmtQuotaLabel(input.rate_limits?.seven_day, SEVEN_DAYS);
 
   const mins = Math.floor(durationMs / 60000);
   const secs = Math.floor((durationMs % 60000) / 1000);
@@ -173,14 +170,13 @@ export function render(
     [
       `${colors.cyan.fg}${dirName}${colors.reset}${branch ? ` ${branch}` : ""}${linesAdded || linesRemoved ? ` ${colors.green.fg}+${linesAdded}${colors.reset} ${colors.red.fg}-${linesRemoved}${colors.reset}` : ""}`,
       makeBar(pct, ` CTX ${pct}%`, `${model} `),
-      usage.error && `${colors.red.fg}quota: ${usage.error}${colors.reset}`,
       makeBar(
         q5h?.pct,
         q5h?.label,
         `${costFmt} │ ${mins}m${secs}s `,
         q5h?.pace,
       ),
-      makeBar(q7d?.pct, q7d?.label, `${fmtTime(fetchedAt)} `, q7d?.pace),
+      makeBar(q7d?.pct, q7d?.label, "", q7d?.pace),
     ]
       .filter(Boolean)
       .join("\n") + "\n",
